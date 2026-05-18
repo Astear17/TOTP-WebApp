@@ -18,7 +18,7 @@ services:
         fromService:
           type: web
           name: totp-webapp-web
-          property: url
+          property: host
 
   - type: web
     name: totp-webapp-web
@@ -31,7 +31,7 @@ services:
         fromService:
           type: web
           name: totp-webapp-api
-          property: url
+          property: host
 
 databases:
   - name: totp-webapp-db
