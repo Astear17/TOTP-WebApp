@@ -24,7 +24,6 @@ services:
   - type: web
     name: totp-webapp-web
     runtime: static
-    plan: free
     rootDir: apps/web
     buildCommand: npm install && npm run build
     staticPublishPath: dist
