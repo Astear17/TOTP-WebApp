@@ -1,6 +1,6 @@
 import { createEmptyVaultPayload, decryptVaultPayload, deriveVaultKey, encryptVaultPayload, encryptVaultPayloadWithKey } from "@totp-webapp/crypto";
 import { encryptedVaultRecordSchema, type EncryptedVaultRecord, type VaultEntry, type VaultPayload } from "@totp-webapp/shared";
-import { generateTotpCode, getRemainingSeconds, isValidBase32Secret, normalizeBase32Secret, parseOtpAuthUri } from "@totp-webapp/shared";
+import { generateTotpCode, getRemainingSeconds, isValidBase32Secret, normalizeBase32Secret, parseProtonAuthenticatorExport, parseTotpImportText, type ParsedOtpAuthUri } from "@totp-webapp/shared";
 import { AlertTriangle, ArrowDownUp, Camera, Clipboard, Cloud, CloudOff, Download, Edit3, FileUp, KeyRound, Lock, Moon, Plus, QrCode, Save, Search, Settings, Shield, Sun, Trash2, Upload, WifiOff, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchRemoteVault, loginSync, registerSync, uploadRemoteVault } from "./lib/sync";
@@ -154,6 +154,17 @@ export default function App() {
     setNotice({ type: "success", message: "Account added to encrypted vault." });
   }
 
+  async function addParsedEntries(entries: ParsedOtpAuthUri[]) {
+    if (!vault || entries.length === 0) return;
+    await persistVault({
+      ...vault,
+      entries: [...entries.map((entry) => newEntry({ ...entry, tags: [] })), ...vault.entries],
+      updatedAt: nowIso()
+    });
+    setScreen("dashboard");
+    setNotice({ type: "success", message: `Imported ${entries.length} account${entries.length === 1 ? "" : "s"} into the encrypted vault.` });
+  }
+
   async function updateEntry(id: string, patch: Partial<VaultEntry>) {
     if (!vault) return;
     await persistVault({
@@ -229,8 +240,19 @@ export default function App() {
             {screen === "dashboard" && vault && <Dashboard entries={filteredEntries} query={query} setQuery={setQuery} tick={tick} onCopy={copyCode} onDelete={deleteEntry} onReorder={reorder} onEdit={updateEntry} setScreen={setScreen} syncUpload={syncUpload} syncDownload={syncDownload} online={online} syncToken={syncToken} />}
             {screen === "add" && <AddAccountScreen setScreen={setScreen} />}
             {screen === "manual" && <ManualEntryScreen onAdd={addEntry} />}
-            {screen === "qr" && <QrScannerScreen onAdd={addEntry} setNotice={setNotice} />}
-            {screen === "import" && <ImportScreen onImportEncrypted={async (record) => { await saveEncryptedVault(record); setEncryptedVault(record); lockVault(); }} onImportPlain={async (text) => { const parsed = parseOtpAuthUri(text); await addEntry({ ...parsed, tags: [] }); }} />}
+            {screen === "qr" && <QrScannerScreen onAddMany={addParsedEntries} setNotice={setNotice} />}
+            {screen === "import" && <ImportScreen onImportEncrypted={async (record) => { await saveEncryptedVault(record); setEncryptedVault(record); lockVault(); }} onImportPlain={async (text) => { const parsed = parseTotpImportText(text); await addParsedEntries(parsed.entries); }} onImportProton={async (text) => addParsedEntries(parseProtonAuthenticatorExport(text))} onImportGoogle={async (texts) => {
+              const batches = texts.map(parseTotpImportText).sort((left, right) => (left.batchIndex ?? 0) - (right.batchIndex ?? 0));
+              const expectedBatchSize = batches.find((batch) => typeof batch.batchSize === "number")?.batchSize;
+              if (expectedBatchSize && batches.length < expectedBatchSize) {
+                setNotice({ type: "error", message: `Select all ${expectedBatchSize} Google Authenticator QR images before importing.` });
+                return;
+              }
+              const entries = batches.flatMap((batch) => batch.entries);
+              await addParsedEntries(entries);
+              const batchCount = batches.filter((batch) => typeof batch.batchIndex === "number").length;
+              if (batchCount) setNotice({ type: "success", message: `Imported ${entries.length} account${entries.length === 1 ? "" : "s"} from ${batchCount} Google QR image${batchCount === 1 ? "" : "s"}.` });
+            }} />}
             {screen === "export" && encryptedVault && <ExportScreen encryptedVault={encryptedVault} />}
             {screen === "settings" && <SettingsScreen setScreen={setScreen} syncEmail={syncEmail} onLogoutSync={() => { setSyncToken(undefined); setSyncEmail(undefined); setRemoteRevision(undefined); }} />}
             {screen === "security" && <SecurityScreen autoLockMinutes={autoLockMinutes} setAutoLockMinutes={setAutoLockMinutes} clipboardClearSeconds={clipboardClearSeconds} setClipboardClearSeconds={setClipboardClearSeconds} />}
@@ -408,12 +430,12 @@ function ManualEntryScreen({ onAdd }: { onAdd: (entry: Omit<VaultEntry, "id" | "
   </FormPanel>;
 }
 
-function QrScannerScreen({ onAdd, setNotice }: { onAdd: (entry: Omit<VaultEntry, "id" | "createdAt" | "updatedAt">) => void; setNotice: (notice: Notice) => void }) {
+function QrScannerScreen({ onAddMany, setNotice }: { onAddMany: (entries: ParsedOtpAuthUri[]) => Promise<void>; setNotice: (notice: Notice) => void }) {
   const readerId = "qr-reader";
   async function parseText(text: string) {
     try {
-      const parsed = parseOtpAuthUri(text);
-      await onAdd({ ...parsed, tags: [] });
+      const parsed = parseTotpImportText(text);
+      await onAddMany(parsed.entries);
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Invalid QR code." });
     }
@@ -426,29 +448,48 @@ function QrScannerScreen({ onAdd, setNotice }: { onAdd: (entry: Omit<VaultEntry,
       parseText(decoded);
     }, () => undefined);
   }
-  async function scanFile(file: File) {
+  async function scanFiles(files: FileList) {
     const { Html5Qrcode } = await import("html5-qrcode");
     const scanner = new Html5Qrcode(readerId, false);
-    const decoded = await scanner.scanFile(file, true);
-    parseText(decoded);
+    const decodedTexts: string[] = [];
+    for (const file of Array.from(files)) {
+      decodedTexts.push(await scanner.scanFile(file, true));
+    }
+    const entries = decodedTexts.flatMap((text) => parseTotpImportText(text).entries);
+    await onAddMany(entries);
   }
   return <FormPanel title="QR scanner">
     <div id={readerId} className="min-h-64 overflow-hidden rounded-3xl border border-slate-200 bg-black/5 dark:border-white/10 dark:bg-black/30" />
     <button className="btn-primary w-full" onClick={startCamera}><Camera size={18} />Start camera</button>
-    <label className="btn-secondary w-full cursor-pointer"><FileUp size={18} />Upload QR image<input className="hidden" type="file" accept="image/*" onChange={(event) => event.target.files?.[0] && scanFile(event.target.files[0])} /></label>
+    <label className="btn-secondary w-full cursor-pointer"><FileUp size={18} />Upload QR image<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => event.target.files?.length && scanFiles(event.target.files).catch((error: unknown) => setNotice({ type: "error", message: error instanceof Error ? error.message : "Invalid QR image." }))} /></label>
   </FormPanel>;
 }
 
-function ImportScreen({ onImportEncrypted, onImportPlain }: { onImportEncrypted: (record: EncryptedVaultRecord) => void; onImportPlain: (text: string) => void }) {
+function ImportScreen({ onImportEncrypted, onImportPlain, onImportProton, onImportGoogle }: { onImportEncrypted: (record: EncryptedVaultRecord) => void; onImportPlain: (text: string) => void; onImportProton: (text: string) => void; onImportGoogle: (texts: string[]) => void }) {
   async function importFile(file: File) {
     const text = await file.text();
     const json = JSON.parse(text);
     await onImportEncrypted(encryptedVaultRecordSchema.parse(json));
   }
+  async function importProtonFile(file: File) {
+    await onImportProton(await file.text());
+  }
+  async function importGoogleImages(files: FileList) {
+    const { Html5Qrcode } = await import("html5-qrcode");
+    const scanner = new Html5Qrcode("import-qr-reader", false);
+    const decodedTexts: string[] = [];
+    for (const file of Array.from(files)) {
+      decodedTexts.push(await scanner.scanFile(file, false));
+    }
+    await onImportGoogle(decodedTexts);
+  }
   return <FormPanel title="Import backup">
-    <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Encrypted backups still require the original master password. Plain otpauth text is immediately encrypted into the open vault.</p>
+    <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">Encrypted backups still require the original master password. Plain otpauth, Google Authenticator migration QR images, and Proton Authenticator JSON exports are immediately encrypted into the open vault.</p>
     <label className="btn-primary w-full cursor-pointer"><FileUp size={18} />Import encrypted backup<input className="hidden" type="file" accept="application/json" onChange={(event) => event.target.files?.[0] && importFile(event.target.files[0])} /></label>
-    <textarea className="input min-h-36 font-mono" placeholder="Optional plain otpauth:// URI" onBlur={(event) => event.target.value.trim() && onImportPlain(event.target.value.trim())} />
+    <label className="btn-secondary w-full cursor-pointer"><FileUp size={18} />Import Proton JSON<input className="hidden" type="file" accept="application/json" onChange={(event) => event.target.files?.[0] && importProtonFile(event.target.files[0])} /></label>
+    <label className="btn-secondary w-full cursor-pointer"><QrCode size={18} />Import Google QR images<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => event.target.files?.length && importGoogleImages(event.target.files)} /></label>
+    <div id="import-qr-reader" className="h-0 overflow-hidden" />
+    <textarea className="input min-h-36 font-mono" placeholder="Optional otpauth:// or otpauth-migration:// text" onBlur={(event) => event.target.value.trim() && onImportPlain(event.target.value.trim())} />
   </FormPanel>;
 }
 

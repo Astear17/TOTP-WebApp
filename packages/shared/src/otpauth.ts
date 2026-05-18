@@ -42,14 +42,14 @@ export function parseOtpAuthUri(input: string): ParsedOtpAuthUri {
     throw new Error("The TOTP secret is not valid Base32.");
   }
 
-  const issuer = (params.get("issuer") || (accountParts.length ? labelIssuer : "")).trim();
+  const issuer = (params.get("issuer") || (accountParts.length ? labelIssuer : "") || "Imported").trim();
   const accountName = (accountParts.length ? accountParts.join(":") : labelIssuer).trim();
   const algorithm = totpAlgorithmSchema.parse((params.get("algorithm") ?? "SHA1").toUpperCase());
   const digits = z.union([z.literal(6), z.literal(8)]).parse(Number(params.get("digits") ?? 6));
   const period = z.number().int().min(10).max(120).parse(Number(params.get("period") ?? 30));
 
-  if (!issuer || !accountName) {
-    throw new Error("The otpauth URI must include an issuer and account name.");
+  if (!accountName) {
+    throw new Error("The otpauth URI must include an account name.");
   }
 
   return { issuer, accountName, secret, algorithm, digits, period };

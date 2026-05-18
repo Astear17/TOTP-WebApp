@@ -17,4 +17,10 @@ describe("parseOtpAuthUri", () => {
   it("rejects non-TOTP URIs", () => {
     expect(() => parseOtpAuthUri("otpauth://hotp/Example:alice?secret=JBSWY3DPEHPK3PXP")).toThrow("Only otpauth://totp");
   });
+
+  it("uses a neutral issuer fallback when an export omits issuer", () => {
+    const parsed = parseOtpAuthUri("otpauth://totp/alice@example.com?secret=JBSWY3DPEHPK3PXP");
+    expect(parsed.issuer).toBe("Imported");
+    expect(parsed.accountName).toBe("alice@example.com");
+  });
 });
