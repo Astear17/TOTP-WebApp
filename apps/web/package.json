@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "npm install --prefix ../../packages/shared && npm run build --prefix ../../packages/shared && npm install --prefix ../../packages/crypto && npm run build --prefix ../../packages/crypto",
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
