@@ -1,6 +1,6 @@
 # TOTP-WebApp
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OWNER/TOTP-WebApp)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Astear17/TOTP-WebApp)
 
 After forking, replace OWNER in the Deploy to Render URL with your GitHub username or organization name.
 
@@ -77,6 +77,8 @@ No source code from third-party authenticator apps is included. This project ind
 5. After deploy, open the static site URL and create a local vault.
 
 The root `render.yaml` uses Render Blueprint syntax with a Node API service, a static frontend service, and a managed PostgreSQL database. If Render changes Blueprint properties, create the services manually using the commands below.
+
+The Blueprint sets both web services to `plan: free`. Render currently supports `host`, `hostport`, `port`, and `connectionString` service references in Blueprints, so the web app receives the API host and normalizes it to `https://...` at runtime. Render may still ask for payment information to verify the account or because free instance availability varies by account and region.
 
 ## Manual Render deployment guide
 

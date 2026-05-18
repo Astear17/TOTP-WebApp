@@ -2,6 +2,7 @@ services:
   - type: web
     name: totp-webapp-api
     runtime: node
+    plan: free
     rootDir: apps/api
     buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm run start
@@ -18,11 +19,12 @@ services:
         fromService:
           type: web
           name: totp-webapp-web
-          property: url
+          property: host
 
   - type: web
     name: totp-webapp-web
     runtime: static
+    plan: free
     rootDir: apps/web
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -31,7 +33,7 @@ services:
         fromService:
           type: web
           name: totp-webapp-api
-          property: url
+          property: host
 
 databases:
   - name: totp-webapp-db

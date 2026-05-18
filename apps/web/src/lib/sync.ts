@@ -1,6 +1,13 @@
 import type { EncryptedVaultRecord } from "@totp-webapp/shared";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, "");
+  return `https://${trimmed.replace(/\/$/, "")}`;
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 type AuthResponse = { token: string; email: string };
 type RemoteVault = { encryptedVault: EncryptedVaultRecord | null };

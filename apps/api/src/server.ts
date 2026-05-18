@@ -11,6 +11,12 @@ import { loginSchema, putVaultSchema, registerSchema } from "./validation.js";
 
 type JwtUser = { sub: string; email: string };
 
+function normalizeOrigin(origin: string): string {
+  const trimmed = origin.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, "");
+  return `https://${trimmed.replace(/\/$/, "")}`;
+}
+
 declare module "@fastify/jwt" {
   interface FastifyJWT {
     payload: JwtUser;
@@ -33,7 +39,7 @@ export function buildServer(prisma = new PrismaClient()): FastifyInstance {
     }
   });
   app.register(cors, {
-    origin: env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),
+    origin: env.CORS_ORIGIN.split(",").map(normalizeOrigin),
     credentials: false
   });
   app.register(rateLimit, {
