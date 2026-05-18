@@ -23,8 +23,10 @@ services:
   - type: web
     name: totp-webapp-web
     runtime: static
-    buildCommand: npm install --include=dev && npm run build -w packages/shared && npm run build -w packages/crypto && npm run build -w apps/web
-    staticPublishPath: apps/web/dist
+    plan: free
+    rootDir: apps/web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE_URL
         fromService:
