@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(20, 184, 166, 0.16), transparent 32rem),
+    radial-gradient(circle at 90% 0%, rgba(245, 158, 11, 0.12), transparent 30rem),
+    #f8fafc;
+}
+
+.dark body,
+body:has(.dark) {
+  background:
+    radial-gradient(circle at 15% 10%, rgba(20, 184, 166, 0.16), transparent 32rem),
+    radial-gradient(circle at 90% 0%, rgba(245, 158, 11, 0.08), transparent 30rem),
+    #071413;
+}
+
+@layer components {
+  .glass {
+    @apply border border-white/60 bg-white/75 shadow-glow backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/60;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-white/10 dark:bg-white/5 dark:text-white;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55;
+  }
+
+  .btn-primary {
+    @apply btn bg-teal-700 text-white hover:bg-teal-800 dark:bg-teal-500 dark:text-slate-950 dark:hover:bg-teal-400;
+  }
+
+  .btn-secondary {
+    @apply btn border border-slate-200 bg-white/70 text-slate-800 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10;
+  }
+}
