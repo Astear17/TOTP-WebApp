@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run src",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
