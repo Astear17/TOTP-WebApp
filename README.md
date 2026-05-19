@@ -1,189 +1,157 @@
 # TOTP-WebApp
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Astear17/TOTP-WebApp)
-
-After forking, replace OWNER in the Deploy to Render URL with your GitHub username or organization name.
-
-TOTP-WebApp is a self-hosted, offline-first TOTP authenticator web app with encrypted local vault storage and optional encrypted cloud sync.
-
-## Project overview
-
-This repository contains a TypeScript monorepo with a React/Vite PWA, browser crypto utilities, shared validation/TOTP utilities, and a Fastify/PostgreSQL sync API. The app works without an account. Sync is optional and stores only encrypted vault blobs.
-
-## Features
-
-- Offline-first PWA with installable manifest and service worker app-shell cache.
-- Encrypted local vault in IndexedDB.
-- TOTP generation for SHA1, SHA256, SHA512, 6 or 8 digits, and configurable periods.
-- `otpauth://totp` QR camera scanning, QR image import, and manual entry.
-- Search, copy, edit, rename, delete, reorder, tags, fallback issuer initials, light/dark mode.
-- Encrypted Backup/Restore export and import.
-- Chrome Extension package via the web build output.
-- Optional encrypted cloud sync with conflict detection.
-- Fastify API with Helmet, CORS, rate limits, JWT auth, bcrypt password hashing, Zod validation, Prisma, and PostgreSQL.
-
-## Security model
-
-The vault master password is entered only in the browser. The browser derives an AES-GCM key from that password using Web Crypto PBKDF2-SHA256 with a per-vault random salt. TOTP entries are encrypted before being saved to IndexedDB or uploaded for sync.
-
-PBKDF2 is used instead of Argon2id because it is natively available in Web Crypto across modern browsers. Argon2id is stronger for password hashing, but browser use generally requires WASM packaging and an additional supply-chain review.
-
-## What is stored locally
-
-- Encrypted vault blob in IndexedDB.
-- KDF salt, AES-GCM IV, vault version, revision, and timestamps.
-- UI/security settings such as theme, auto-lock timeout, clipboard clear timeout, and sync token.
-
-## What is stored on the backend
-
-- User id.
-- Email.
-- Bcrypt hash of the sync account password.
-- Encrypted vault blob.
-- Vault version, revision, and timestamps.
-
-## What is never sent to the backend
-
-- Vault master password.
-- Plaintext TOTP secrets.
-- Plaintext vault data.
-- Generated TOTP codes.
-- Decoded QR contents.
-
-## PWA / Chrome Extension / offline behavior
-
-The service worker caches the app shell after first load. The encrypted vault remains in IndexedDB, so the authenticator dashboard can be unlocked and used while offline. The service worker does not cache decrypted vault data or API responses.
-
-Install from the browser install prompt or menu after visiting the deployed static site over HTTPS.
-
-For Chrome Extension publishing, build `apps/web` and upload the generated `apps/web/dist` folder as an unpacked extension or zipped Web Store package:
-
-```bash
-npm run build -w apps/web
-```
-
-The extension uses Manifest V3 with no host permissions. Backup and Restore are local encrypted JSON files and work offline. On first create or unlock in the extension, the master password is required; after that, Chrome extension storage remembers the vault key for this browser profile so reopening the popup does not ask every time. Use Security settings -> Require master password next launch to clear that remembered key.
-
-## Open-source inspiration and attribution
-
-TOTP-WebApp implements standard TOTP authentication behavior and common authenticator UX patterns. Its feature set is inspired by modern open-source authenticator applications that support offline TOTP generation, encrypted local vaults, QR enrollment, import/export, and optional encrypted sync.
-
-Unless explicitly listed in the attribution list below, this project does not copy source code, branding, icons, UI assets, or proprietary infrastructure from any third-party authenticator.
-
-Attribution list:
-
-No source code from third-party authenticator apps is included. This project independently implements standard TOTP behavior using public specifications and open-source libraries.
+TOTP-WebApp is an offline-first authenticator for managing time-based one-time password (TOTP) accounts in the browser. It encrypts vault data locally before storage or sync, supports import/export workflows, and includes an optional account-based sync API for self-hosted deployments.
 
 Made by Astear17.
 
-## Fully Render deployment guide
+## Overview
 
-1. Fork this repository.
-2. Replace `OWNER` in the Deploy to Render button URL with your GitHub username or organization.
-3. Click the Deploy to Render button.
-4. Confirm the Blueprint creates:
-   - `totp-webapp-web`
-   - `totp-webapp-api`
-   - `totp-webapp-db`
-5. After deploy, open the static site URL and create a local vault.
+This repository is a TypeScript monorepo containing:
 
-The root `render.yaml` uses Render Blueprint syntax with a Node API service, a static frontend service, and a managed PostgreSQL database. If Render changes Blueprint properties, create the services manually using the commands below.
+- `apps/web`: React and Vite frontend for the web app, PWA, and Chrome extension build.
+- `apps/api`: Fastify API for account registration, login, JWT auth, and encrypted vault sync.
+- `packages/crypto`: Browser crypto helpers for vault encryption and decryption.
+- `packages/shared`: Shared TOTP, import, validation, and schema utilities.
 
-The Blueprint sets both web services to `plan: free`. Render currently supports `host`, `hostport`, `port`, and `connectionString` service references in Blueprints, so the web app receives the API host and normalizes it to `https://...` at runtime. Render may still ask for payment information to verify the account or because free instance availability varies by account and region.
+The app is designed so TOTP secrets are usable offline after the vault is created or restored. Cloud sync is optional and stores only encrypted vault records.
 
-## Manual Render deployment guide
+## Features
 
-Create a PostgreSQL database named `totp-webapp-db`.
+- Encrypted local vault storage in IndexedDB.
+- TOTP generation for SHA1, SHA256, SHA512, 6-digit and 8-digit codes.
+- QR scanning, QR image import, manual entry, and migration import support.
+- Encrypted backup export and restore.
+- Optional account sync with register/login, JWT sessions, conflict detection, and encrypted vault upload/download.
+- Chrome extension build with Manifest V3.
+- Light and dark themes, search, copy, edit, delete, reorder, tags, auto-lock, and clipboard clearing.
 
-Create a Web Service named `totp-webapp-api`:
+## Security Model
 
-- Root directory: `apps/api`
-- Build command: `npm install && npx prisma generate && npx prisma migrate deploy && npm run build`
-- Start command: `npm run start`
-- Environment: `NODE_ENV=production`, `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN`
+The master password is used only in the client. It derives an AES-GCM key through Web Crypto PBKDF2-SHA256 with a per-vault salt. Decrypted vault data, plaintext TOTP secrets, generated codes, and the master password are never sent to the backend.
 
-Create a Static Site named `totp-webapp-web`:
+The sync API stores:
 
-- Root directory: `apps/web`
-- Build command: `npm install && npm run build`
-- Publish directory: `dist`
-- Environment: `VITE_API_BASE_URL=https://your-api.onrender.com`
+- User id and email.
+- Bcrypt hash of the sync account password.
+- Encrypted vault JSON.
+- Vault version, revision, and timestamps.
 
-## Local development setup
+The backend treats vault content as opaque encrypted data.
 
-Requirements: Node.js 20+, npm, PostgreSQL. A Docker Compose file is included for local PostgreSQL.
+## Deployment
+
+Render deployment uses three services:
+
+- `totp-webapp-web`: static frontend.
+- `totp-webapp-api`: Node API.
+- `totp-webapp-db`: PostgreSQL database.
+
+The included `render.yaml` is configured for those service names. If you rename services, update the public external URLs, for example:
+
+- `VITE_API_BASE_URL=https://your-api-service.onrender.com`
+- `CORS_ORIGIN=https://your-web-service.onrender.com`
+
+Do not use only the internal Render service name such as `totp-webapp-api` as a browser-facing URL. Browser requests must use the public `.onrender.com` URL.
+
+## Local Development
+
+Requirements:
+
+- Node.js 20+
+- npm
+- PostgreSQL, or Docker for the included Compose database
+
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Start PostgreSQL:
+
+```bash
+docker compose up -d
+```
+
+Create environment files:
+
+```bash
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-docker compose up -d
+```
+
+Run database setup:
+
+```bash
 npm run prisma:generate -w apps/api
 npm run prisma:migrate -w apps/api
+```
+
+Start the API and web app:
+
+```bash
 npm run dev:api
 npm run dev:web
 ```
 
-Open `http://localhost:5173`. The API defaults to `http://localhost:4000`.
+Open `http://localhost:5173`.
 
-## Environment variables
+## Build Commands
+
+Build the full Render/web deployment:
+
+```bash
+npm run build:render
+```
+
+Build only the Chrome extension output:
+
+```bash
+npm run build:extension -w apps/web
+```
+
+The extension build is written to:
+
+```text
+D:\Windows Tool\TOTP-Extension
+```
+
+Load that folder in Chrome through `chrome://extensions` with Developer Mode enabled.
+
+## Environment Variables
 
 API:
 
 - `DATABASE_URL`: PostgreSQL connection string.
-- `JWT_SECRET`: long random secret, minimum 32 characters.
-- `CORS_ORIGIN`: frontend origin, for example `http://localhost:5173`.
+- `JWT_SECRET`: signing secret, minimum 32 characters.
+- `CORS_ORIGIN`: public frontend origin, for example `https://totp-webapp-web.onrender.com`.
 - `NODE_ENV`: `development`, `test`, or `production`.
-- `PORT`: optional API port.
+- `PORT`: API port.
 
 Web:
 
-- `VITE_API_BASE_URL`: API base URL, for example `http://localhost:4000`.
+- `VITE_API_BASE_URL`: public API URL, for example `https://totp-webapp-api.onrender.com`.
 
-## Database migration instructions
+## Import And Backup
 
-For development:
+Encrypted backup files contain only encrypted vault data. They still require the original master password after restore. Plain `otpauth://` imports, Google Authenticator migration QR images, and Proton Authenticator exports are parsed in the browser and immediately encrypted into the open vault.
 
-```bash
-npm run prisma:migrate -w apps/api
-```
+## Testing
 
-For production on Render, the API build command runs:
+Run all checks:
 
 ```bash
-npx prisma migrate deploy
+npm run typecheck
+npm test
 ```
 
-## Import/export guide
-
-Use Backup to download an encrypted JSON vault backup. Use Restore or Settings -> Import backup to restore it. The same master password is required to unlock that backup after import.
-
-Use Add account -> Import backup to import an encrypted backup or paste a plain `otpauth://totp` URI. Plain imports are immediately encrypted into the open vault and are not stored as plaintext files.
-
-## Known limitations
+## Known Limitations
 
 - No independent security audit has been performed.
 - PBKDF2 is used for browser compatibility; Argon2id is not bundled.
 - Sync conflict handling is conservative and does not merge individual entries.
-- Sync tokens are stored in IndexedDB settings; use short token lifetimes and HTTPS.
-- Web authenticators have an inherent XSS risk because decrypted secrets exist in browser memory while unlocked.
-
-## Security checklist
-
-- Use HTTPS only.
-- Do not use for critical real accounts before independent security review.
-- Backend must never receive plaintext TOTP secrets.
-- Master password cannot be recovered.
-- Losing the master password can permanently lock the encrypted vault.
-- Browser XSS is the biggest threat to a web-based authenticator.
-- Keep dependencies updated.
-- Do not disable CSP or security headers in production.
-- Set a strong `JWT_SECRET`.
-- Keep Render environment variables private.
-
-## Security disclaimer
-
-This project is provided as-is under the MIT License. TOTP authenticators protect sensitive credentials; deploy and use this only after reviewing the source, dependency chain, hosting configuration, and threat model for your environment.
+- Sync tokens are stored in browser storage.
+- Web authenticators have inherent XSS risk because decrypted secrets exist in memory while the vault is unlocked.
 
 ## License
 

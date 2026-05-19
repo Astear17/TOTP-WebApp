@@ -3,7 +3,7 @@ import { encryptedVaultRecordSchema, type EncryptedVaultRecord, type VaultEntry,
 import { generateTotpCode, getRemainingSeconds, isValidBase32Secret, normalizeBase32Secret, parseProtonAuthenticatorExport, parseTotpImportText, type ParsedOtpAuthUri } from "@totp-webapp/shared";
 import { AlertTriangle, ArrowDownUp, Camera, Clipboard, Cloud, CloudOff, Download, Edit3, FileUp, KeyRound, Lock, Moon, Plus, QrCode, Save, Search, Settings, Shield, Sun, Trash2, Upload, WifiOff, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchRemoteVault, loginSync, registerSync, uploadRemoteVault } from "./lib/sync";
+import { checkSyncHealth, fetchRemoteVault, getSyncBaseUrl, loginSync, registerSync, uploadRemoteVault } from "./lib/sync";
 import { clearRememberedVaultKey, getEncryptedVault, getRememberedVaultKey, getSettings, isExtensionRuntime, saveEncryptedVault, saveRememberedVaultKey, saveSettings } from "./lib/storage";
 
 type Screen = "unlock" | "create" | "login" | "dashboard" | "add" | "qr" | "manual" | "import" | "export" | "settings" | "security" | "about";
@@ -365,6 +365,16 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [serverStatus, setServerStatus] = useState<"checking" | "ready" | "slow">("checking");
+  useEffect(() => {
+    let active = true;
+    checkSyncHealth()
+      .then(() => active && setServerStatus("ready"))
+      .catch(() => active && setServerStatus("slow"));
+    return () => {
+      active = false;
+    };
+  }, []);
   async function submit() {
     try {
       const response = mode === "login" ? await loginSync(email, password) : await registerSync(email, password);
@@ -374,6 +384,11 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
     }
   }
   return <CenteredPanel title="Sync account" subtitle="This password is only for the sync account. It is separate from the vault master password.">
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${serverStatus === "ready" ? "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-100" : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"}`}>
+      {serverStatus === "checking" && `Checking sync server at ${getSyncBaseUrl() || "not configured"}...`}
+      {serverStatus === "ready" && "Sync server is ready."}
+      {serverStatus === "slow" && "Sync server is not responding yet. Render free services can take a moment to wake up; try again shortly."}
+    </div>
     <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-900/5 p-1 dark:bg-white/5">
       <button className={mode === "login" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("login")}>Login</button>
       <button className={mode === "register" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("register")}>Register</button>
