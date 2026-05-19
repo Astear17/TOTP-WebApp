@@ -3,9 +3,13 @@ import type { EncryptedVaultRecord } from "@totp-webapp/shared";
 function normalizeApiBaseUrl(value: string | undefined): string {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) return "";
-  const withoutProtocol = trimmed.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-  const publicHost = withoutProtocol.includes(".") ? withoutProtocol : `${withoutProtocol}.onrender.com`;
-  return `https://${publicHost}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, "");
+
+  const host = trimmed.replace(/\/$/, "");
+  if (host === "localhost" || host.startsWith("localhost:") || host.startsWith("127.0.0.1")) {
+    return `http://${host}`;
+  }
+  return `https://${host.includes(".") ? host : `${host}.onrender.com`}`;
 }
 
 const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);

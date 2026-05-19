@@ -13,9 +13,20 @@ type JwtUser = { sub: string; email: string };
 
 function normalizeOrigin(origin: string): string {
   const trimmed = origin.trim();
-  const withoutProtocol = trimmed.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-  const publicHost = withoutProtocol.includes(".") ? withoutProtocol : `${withoutProtocol}.onrender.com`;
-  return `https://${publicHost}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, "");
+
+  const host = trimmed.replace(/\/$/, "");
+  if (host === "localhost" || host.startsWith("localhost:") || host.startsWith("127.0.0.1")) {
+    return `http://${host}`;
+  }
+  return `https://${host.includes(".") ? host : `${host}.onrender.com`}`;
+}
+
+function configuredOrigins(): Set<string> {
+  const origins = new Set(env.CORS_ORIGIN.split(",").map(normalizeOrigin));
+  origins.add("https://totp-webapp-web.onrender.com");
+  origins.add("http://localhost:5173");
+  return origins;
 }
 
 declare module "@fastify/jwt" {
@@ -39,8 +50,15 @@ export function buildServer(prisma = new PrismaClient()): FastifyInstance {
       }
     }
   });
+  const allowedOrigins = configuredOrigins();
   app.register(cors, {
-    origin: env.CORS_ORIGIN.split(",").map(normalizeOrigin),
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(normalizeOrigin(origin))) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     credentials: false
   });
   app.register(rateLimit, {
