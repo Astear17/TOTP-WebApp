@@ -1,0 +1,17 @@
+{
+  "name": "TOTP-WebApp",
+  "short_name": "TOTP",
+  "description": "Offline-first encrypted TOTP authenticator with encrypted local vault storage.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#071413",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

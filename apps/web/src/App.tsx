@@ -10,7 +10,6 @@ type Screen = "unlock" | "create" | "login" | "dashboard" | "add" | "qr" | "manu
 type Notice = { type: "error" | "success" | "info"; message: string } | null;
 
 const nowIso = () => new Date().toISOString();
-const cloudSyncEnabled = Boolean(import.meta.env.VITE_API_BASE_URL?.trim());
 
 function newEntry(input: Omit<VaultEntry, "id" | "createdAt" | "updatedAt">): VaultEntry {
   const now = nowIso();
@@ -39,7 +38,6 @@ export default function App() {
   const [remoteRevision, setRemoteRevision] = useState<number | undefined>();
   const [conflict, setConflict] = useState<EncryptedVaultRecord | null>(null);
   const inactivityRef = useRef<number>();
-  const showCloudSync = cloudSyncEnabled && !isExtensionRuntime();
 
   useEffect(() => {
     getEncryptedVault().then(async (record) => {
@@ -282,7 +280,7 @@ export default function App() {
             {screen === "create" && <CreateVaultScreen onCreate={createVault} />}
             {screen === "unlock" && <UnlockScreen encryptedVault={encryptedVault} masterPassword={masterPassword} setMasterPassword={setMasterPassword} onUnlock={() => unlockVault(masterPassword)} onCreate={() => setScreen("create")} />}
             {screen === "login" && <SyncLoginScreen setNotice={setNotice} onAuthed={(token, email) => { setSyncToken(token); setSyncEmail(email); setScreen("dashboard"); }} />}
-            {screen === "dashboard" && vault && <Dashboard entries={filteredEntries} query={query} setQuery={setQuery} tick={tick} onCopy={copyCode} onDelete={deleteEntry} onReorder={reorder} onEdit={updateEntry} setScreen={setScreen} onBackup={() => downloadEncryptedBackup()} online={online} syncToken={syncToken} cloudSyncEnabled={showCloudSync} syncUpload={syncUpload} syncDownload={syncDownload} />}
+            {screen === "dashboard" && vault && <Dashboard entries={filteredEntries} query={query} setQuery={setQuery} tick={tick} onCopy={copyCode} onDelete={deleteEntry} onReorder={reorder} onEdit={updateEntry} setScreen={setScreen} onBackup={() => downloadEncryptedBackup()} online={online} syncToken={syncToken} syncUpload={syncUpload} syncDownload={syncDownload} />}
             {screen === "add" && <AddAccountScreen setScreen={setScreen} />}
             {screen === "manual" && <ManualEntryScreen onAdd={addEntry} />}
             {screen === "qr" && <QrScannerScreen onAddMany={addParsedEntries} setNotice={setNotice} />}
@@ -299,7 +297,7 @@ export default function App() {
               if (batchCount) setNotice({ type: "success", message: `Imported ${entries.length} account${entries.length === 1 ? "" : "s"} from ${batchCount} Google QR image${batchCount === 1 ? "" : "s"}.` });
             }} />}
             {screen === "export" && encryptedVault && <ExportScreen encryptedVault={encryptedVault} onBackup={downloadEncryptedBackup} />}
-            {screen === "settings" && <SettingsScreen setScreen={setScreen} syncEmail={syncEmail} cloudSyncEnabled={showCloudSync} onLogoutSync={() => { setSyncToken(undefined); setSyncEmail(undefined); setRemoteRevision(undefined); }} />}
+            {screen === "settings" && <SettingsScreen setScreen={setScreen} syncEmail={syncEmail} onLogoutSync={() => { setSyncToken(undefined); setSyncEmail(undefined); setRemoteRevision(undefined); }} />}
             {screen === "security" && <SecurityScreen autoLockMinutes={autoLockMinutes} setAutoLockMinutes={setAutoLockMinutes} clipboardClearSeconds={clipboardClearSeconds} setClipboardClearSeconds={setClipboardClearSeconds} onForgetDevice={async () => { await clearRememberedVaultKey(); setNotice({ type: "success", message: "Remembered extension unlock cleared." }); }} />}
             {screen === "about" && <AboutScreen />}
           </div>
@@ -375,7 +373,7 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Sync login failed." });
     }
   }
-  return <CenteredPanel title="Cloud sync account" subtitle="Optional self-hosted cloud sync. Backup and Restore work without any account or backend.">
+  return <CenteredPanel title="Sync account" subtitle="This password is only for the sync account. It is separate from the vault master password.">
     <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-900/5 p-1 dark:bg-white/5">
       <button className={mode === "login" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("login")}>Login</button>
       <button className={mode === "register" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("register")}>Register</button>
@@ -386,7 +384,8 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
   </CenteredPanel>;
 }
 
-function Dashboard(props: { entries: VaultEntry[]; query: string; setQuery: (query: string) => void; tick: number; onCopy: (code: string) => void; onDelete: (id: string) => void; onReorder: (id: string, direction: -1 | 1) => void; onEdit: (id: string, patch: Partial<VaultEntry>) => void; setScreen: (screen: Screen) => void; onBackup: () => void; online: boolean; syncToken?: string; cloudSyncEnabled: boolean; syncUpload: () => void; syncDownload: () => void }) {
+function Dashboard(props: { entries: VaultEntry[]; query: string; setQuery: (query: string) => void; tick: number; onCopy: (code: string) => void; onDelete: (id: string) => void; onReorder: (id: string, direction: -1 | 1) => void; onEdit: (id: string, patch: Partial<VaultEntry>) => void; setScreen: (screen: Screen) => void; onBackup: () => void; online: boolean; syncToken?: string; syncUpload: () => void; syncDownload: () => void }) {
+  const extension = isExtensionRuntime();
   return <section>
     <div className="mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
       <label className="relative">
@@ -394,11 +393,12 @@ function Dashboard(props: { entries: VaultEntry[]; query: string; setQuery: (que
         <input className="input pl-11" value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Search issuer, account, or tag" />
       </label>
       <div className="flex flex-wrap gap-2">
-        <button className="btn-secondary" onClick={props.onBackup}><Download size={18} />Backup</button>
-        <button className="btn-secondary" onClick={() => props.setScreen("import")}><FileUp size={18} />Restore</button>
-        {props.cloudSyncEnabled && <>
-          <button className="btn-secondary" onClick={props.syncDownload} disabled={!props.online}>{props.syncToken ? <Cloud size={18} /> : <CloudOff size={18} />} Cloud restore</button>
-          <button className="btn-secondary" onClick={props.syncUpload} disabled={!props.online}><Upload size={18} />Cloud backup</button>
+        {extension ? <>
+          <button className="btn-secondary" onClick={props.onBackup}><Download size={18} />Backup</button>
+          <button className="btn-secondary" onClick={() => props.setScreen("import")}><FileUp size={18} />Restore</button>
+        </> : <>
+          <button className="btn-secondary" onClick={props.syncDownload} disabled={!props.online}>{props.syncToken ? <Cloud size={18} /> : <CloudOff size={18} />} Pull</button>
+          <button className="btn-secondary" onClick={props.syncUpload} disabled={!props.online}><Upload size={18} />Push</button>
         </>}
         <button className="btn-primary" onClick={() => props.setScreen("add")}><Plus size={18} />Add</button>
       </div>
@@ -549,12 +549,12 @@ function ExportScreen({ encryptedVault, onBackup }: { encryptedVault: EncryptedV
   </FormPanel>;
 }
 
-function SettingsScreen({ setScreen, syncEmail, cloudSyncEnabled, onLogoutSync }: { setScreen: (screen: Screen) => void; syncEmail?: string; cloudSyncEnabled: boolean; onLogoutSync: () => void }) {
+function SettingsScreen({ setScreen, syncEmail, onLogoutSync }: { setScreen: (screen: Screen) => void; syncEmail?: string; onLogoutSync: () => void }) {
   return <section className="grid gap-4 md:grid-cols-2">
+    {!isExtensionRuntime() && <ActionCard icon={Cloud} title={syncEmail ? `Sync: ${syncEmail}` : "Login to sync account"} text="Encrypted vault blobs can be pushed to or pulled from the backend." onClick={() => setScreen("login")} />}
     <ActionCard icon={Shield} title="Security settings" text="Configure auto-lock and clipboard clearing." onClick={() => setScreen("security")} />
     <ActionCard icon={Download} title="Export backup" text="Download the encrypted vault blob." onClick={() => setScreen("export")} />
     <ActionCard icon={FileUp} title="Import backup" text="Restore encrypted backup or import otpauth text." onClick={() => setScreen("import")} />
-    {cloudSyncEnabled && <ActionCard icon={Cloud} title={syncEmail ? `Cloud sync: ${syncEmail}` : "Login to cloud sync"} text="Optional self-hosted encrypted vault backup and restore." onClick={() => setScreen("login")} />}
     <ActionCard icon={AlertTriangle} title="About" text="Security model, limitations, and attribution." onClick={() => setScreen("about")} />
     {syncEmail && <button className="btn-secondary rounded-3xl p-6 text-left" onClick={onLogoutSync}>Logout sync account</button>}
   </section>;

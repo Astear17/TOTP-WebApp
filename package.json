@@ -10,6 +10,8 @@
   ],
   "scripts": {
     "build": "npm run build -w packages/shared && npm run build -w packages/crypto && npm run build -w apps/api && npm run build -w apps/web",
+    "build:render": "npm run build",
+    "build:extension": "npm run build:extension -w apps/web",
     "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w packages/crypto && npm run typecheck -w apps/api && npm run typecheck -w apps/web",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
