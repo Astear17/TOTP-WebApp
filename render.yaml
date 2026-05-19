@@ -15,10 +15,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        fromService:
-          type: web
-          name: totp-webapp-web
-          property: host
+        value: https://totp-webapp-web.onrender.com
 
   - type: web
     name: totp-webapp-web
@@ -29,10 +26,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: totp-webapp-api
-          property: host
+        value: https://totp-webapp-api.onrender.com
 
 databases:
   - name: totp-webapp-db

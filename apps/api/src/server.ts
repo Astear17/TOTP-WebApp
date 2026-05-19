@@ -13,8 +13,9 @@ type JwtUser = { sub: string; email: string };
 
 function normalizeOrigin(origin: string): string {
   const trimmed = origin.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, "");
-  return `https://${trimmed.replace(/\/$/, "")}`;
+  const withoutProtocol = trimmed.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  const publicHost = withoutProtocol.includes(".") ? withoutProtocol : `${withoutProtocol}.onrender.com`;
+  return `https://${publicHost}`;
 }
 
 declare module "@fastify/jwt" {
