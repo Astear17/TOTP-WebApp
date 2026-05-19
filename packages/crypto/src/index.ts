@@ -34,7 +34,7 @@ export function randomBase64(byteLength: number): string {
   return bytesToBase64(bytes);
 }
 
-export async function deriveVaultKey(masterPassword: string, saltBase64: string): Promise<CryptoKey> {
+export async function deriveVaultKey(masterPassword: string, saltBase64: string, extractable = false): Promise<CryptoKey> {
   if (masterPassword.length < 12) {
     throw new Error("Master password must be at least 12 characters.");
   }
@@ -59,9 +59,17 @@ export async function deriveVaultKey(masterPassword: string, saltBase64: string)
     },
     baseKey,
     { name: "AES-GCM", length: 256 },
-    false,
+    extractable,
     ["encrypt", "decrypt"]
   );
+}
+
+export async function exportVaultKey(key: CryptoKey): Promise<JsonWebKey> {
+  return cryptoApi().subtle.exportKey("jwk", key);
+}
+
+export async function importVaultKey(key: JsonWebKey): Promise<CryptoKey> {
+  return cryptoApi().subtle.importKey("jwk", key, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
 }
 
 export async function encryptVaultPayload(

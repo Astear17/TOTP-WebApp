@@ -13,6 +13,10 @@ type AuthResponse = { token: string; email: string };
 type RemoteVault = { encryptedVault: EncryptedVaultRecord | null };
 
 async function api<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  if (!API_BASE_URL || location.protocol === "chrome-extension:") {
+    throw new Error("Cloud sync is not configured. Use encrypted Backup and Restore instead.");
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {

@@ -17,7 +17,8 @@ This repository contains a TypeScript monorepo with a React/Vite PWA, browser cr
 - TOTP generation for SHA1, SHA256, SHA512, 6 or 8 digits, and configurable periods.
 - `otpauth://totp` QR camera scanning, QR image import, and manual entry.
 - Search, copy, edit, rename, delete, reorder, tags, fallback issuer initials, light/dark mode.
-- Encrypted backup export/import.
+- Encrypted Backup/Restore export and import.
+- Chrome Extension package via the web build output.
 - Optional encrypted cloud sync with conflict detection.
 - Fastify API with Helmet, CORS, rate limits, JWT auth, bcrypt password hashing, Zod validation, Prisma, and PostgreSQL.
 
@@ -49,11 +50,19 @@ PBKDF2 is used instead of Argon2id because it is natively available in Web Crypt
 - Generated TOTP codes.
 - Decoded QR contents.
 
-## PWA / offline behavior
+## PWA / Chrome Extension / offline behavior
 
 The service worker caches the app shell after first load. The encrypted vault remains in IndexedDB, so the authenticator dashboard can be unlocked and used while offline. The service worker does not cache decrypted vault data or API responses.
 
 Install from the browser install prompt or menu after visiting the deployed static site over HTTPS.
+
+For Chrome Extension publishing, build `apps/web` and upload the generated `apps/web/dist` folder as an unpacked extension or zipped Web Store package:
+
+```bash
+npm run build -w apps/web
+```
+
+The extension uses Manifest V3 with no host permissions. Backup and Restore are local encrypted JSON files and work offline. On first create or unlock in the extension, the master password is required; after that, Chrome extension storage remembers the vault key for this browser profile so reopening the popup does not ask every time. Use Security settings -> Require master password next launch to clear that remembered key.
 
 ## Open-source inspiration and attribution
 
@@ -64,6 +73,8 @@ Unless explicitly listed in the attribution list below, this project does not co
 Attribution list:
 
 No source code from third-party authenticator apps is included. This project independently implements standard TOTP behavior using public specifications and open-source libraries.
+
+Made by Astear17.
 
 ## Fully Render deployment guide
 
@@ -145,7 +156,7 @@ npx prisma migrate deploy
 
 ## Import/export guide
 
-Use Settings -> Export backup to download an encrypted JSON vault backup. The same master password is required to unlock that backup after import.
+Use Backup to download an encrypted JSON vault backup. Use Restore or Settings -> Import backup to restore it. The same master password is required to unlock that backup after import.
 
 Use Add account -> Import backup to import an encrypted backup or paste a plain `otpauth://totp` URI. Plain imports are immediately encrypted into the open vault and are not stored as plaintext files.
 
