@@ -1,0 +1,69 @@
+name: Extension Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-extension:
+    runs-on: ubuntu-latest
+    env:
+      EXTENSION_OUT_DIR: ${{ github.workspace }}/extension-release
+      PUSH_EXTENSION_REPO: ${{ vars.PUSH_EXTENSION_REPO }}
+      EXTENSION_REPO_TOKEN: ${{ secrets.EXTENSION_REPO_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build extension
+        run: npm run build:extension -w apps/web
+
+      - name: Package extension
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${GITHUB_SHA}}"
+          ZIP_NAME="totp-extension-${VERSION}.zip"
+          cd "$EXTENSION_OUT_DIR"
+          zip -r "../$ZIP_NAME" .
+          cd ..
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+
+      - name: Optionally publish generated output repository
+        if: ${{ env.PUSH_EXTENSION_REPO == 'true' && env.EXTENSION_REPO_TOKEN != '' }}
+        run: |
+          EXTENSION_REPO="https://x-access-token:${EXTENSION_REPO_TOKEN}@github.com/Astear17/TOTP-Extension.git"
+          git clone "$EXTENSION_REPO" generated-extension-repo
+          rsync -a --delete --exclude ".git" "$EXTENSION_OUT_DIR/" generated-extension-repo/
+          cd generated-extension-repo
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "Release generated extension ${GITHUB_REF_NAME:-${GITHUB_SHA}}"
+            git push
+          fi

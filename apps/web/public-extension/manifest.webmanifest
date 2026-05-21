@@ -4,7 +4,7 @@
   "description": "Offline-first encrypted TOTP authenticator with encrypted local vault storage.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#071413",
+  "background_color": "#111827",
   "theme_color": "#0f766e",
   "icons": [
     {

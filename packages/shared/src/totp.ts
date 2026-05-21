@@ -39,8 +39,8 @@ function base32ToHex(secret: string): string {
   }
 
   let hex = "";
-  for (let index = 0; index + 4 <= bits.length; index += 4) {
-    hex += Number.parseInt(bits.slice(index, index + 4), 2).toString(16);
+  for (let index = 0; index + 8 <= bits.length; index += 8) {
+    hex += Number.parseInt(bits.slice(index, index + 8), 2).toString(16).padStart(2, "0");
   }
   return hex;
 }

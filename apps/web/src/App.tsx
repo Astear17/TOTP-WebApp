@@ -1,6 +1,6 @@
 import { createEmptyVaultPayload, decryptVaultPayload, decryptVaultPayloadWithKey, deriveVaultKey, encryptVaultPayload, encryptVaultPayloadWithKey, exportVaultKey, importVaultKey } from "@totp-webapp/crypto";
 import { encryptedVaultRecordSchema, type EncryptedVaultRecord, type VaultEntry, type VaultPayload } from "@totp-webapp/shared";
-import { generateTotpCode, getRemainingSeconds, isValidBase32Secret, normalizeBase32Secret, parseProtonAuthenticatorExport, parseTotpImportText, type ParsedOtpAuthUri } from "@totp-webapp/shared";
+import { filterVaultEntries, formatTotpCode, generateTotpCode, getRemainingSeconds, isValidBase32Secret, normalizeBase32Secret, parseProtonAuthenticatorExport, parseTotpImportText, reorderVaultEntries, type ParsedOtpAuthUri } from "@totp-webapp/shared";
 import { AlertTriangle, ArrowDownUp, Camera, Clipboard, Cloud, CloudOff, Download, Edit3, FileUp, KeyRound, Lock, Moon, Plus, QrCode, Save, Search, Settings, Shield, Sun, Trash2, Upload, WifiOff, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { checkSyncHealth, fetchRemoteVault, getSyncBaseUrl, loginSync, registerSync, uploadRemoteVault } from "./lib/sync";
@@ -8,6 +8,7 @@ import { clearRememberedVaultKey, getEncryptedVault, getRememberedVaultKey, getS
 
 type Screen = "unlock" | "create" | "login" | "dashboard" | "add" | "qr" | "manual" | "import" | "export" | "settings" | "security" | "about";
 type Notice = { type: "error" | "success" | "info"; message: string } | null;
+type TotpDisplay = { code: string; formattedCode: string; error: boolean };
 
 const nowIso = () => new Date().toISOString();
 
@@ -31,7 +32,7 @@ export default function App() {
   const [tick, setTick] = useState(Date.now());
   const [online, setOnline] = useState(navigator.onLine);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
-  const [autoLockMinutes, setAutoLockMinutes] = useState(10);
+  const [autoLockMinutes, setAutoLockMinutes] = useState(isExtensionRuntime() ? 0 : 10);
   const [clipboardClearSeconds, setClipboardClearSeconds] = useState(30);
   const [syncToken, setSyncToken] = useState<string | undefined>();
   const [syncEmail, setSyncEmail] = useState<string | undefined>();
@@ -86,10 +87,14 @@ export default function App() {
         inactivityRef.current = window.setTimeout(lockVault, autoLockMinutes * 60 * 1000);
       }
     };
+    const lockWhenHidden = () => {
+      if (document.hidden && vault && autoLockMinutes > 0) lockVault();
+    };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOnline);
     window.addEventListener("pointerdown", resetIdle);
     window.addEventListener("keydown", resetIdle);
+    document.addEventListener("visibilitychange", lockWhenHidden);
     resetIdle();
     return () => {
       window.clearInterval(interval);
@@ -98,16 +103,11 @@ export default function App() {
       window.removeEventListener("offline", onOnline);
       window.removeEventListener("pointerdown", resetIdle);
       window.removeEventListener("keydown", resetIdle);
+      document.removeEventListener("visibilitychange", lockWhenHidden);
     };
   }, [vault, autoLockMinutes]);
 
-  const filteredEntries = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (vault?.entries ?? []).filter((entry) => {
-      const haystack = `${entry.issuer} ${entry.accountName} ${entry.tags.join(" ")}`.toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [vault, query]);
+  const filteredEntries = useMemo(() => filterVaultEntries(vault?.entries ?? [], query), [vault, query]);
 
   async function persistVault(nextVault: VaultPayload) {
     if (!vaultKey || !encryptedVault) throw new Error("Vault is locked.");
@@ -201,11 +201,8 @@ export default function App() {
 
   async function reorder(id: string, direction: -1 | 1) {
     if (!vault) return;
-    const index = vault.entries.findIndex((entry) => entry.id === id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= vault.entries.length) return;
-    const entries = [...vault.entries];
-    [entries[index], entries[target]] = [entries[target], entries[index]];
+    const entries = reorderVaultEntries(vault.entries, id, direction);
+    if (entries === vault.entries) return;
     await persistVault({ ...vault, entries, updatedAt: nowIso() });
   }
 
@@ -271,10 +268,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-slate-950 dark:text-slate-50">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 py-4 sm:px-5 lg:px-6">
         <Header screen={screen} setScreen={setScreen} vault={vault} lockVault={lockVault} online={online} syncEmail={syncEmail} theme={theme} setTheme={setTheme} />
-        <main className="flex flex-1 items-stretch py-5">
-          <div className="w-full">
+        <main className="flex flex-1 items-stretch py-4">
+          <div className="w-full min-w-0">
             {notice && <NoticeBanner notice={notice} onClose={() => setNotice(null)} />}
             {conflict && <ConflictPanel local={encryptedVault} remote={conflict} onKeepLocal={() => { setConflict(null); syncUpload(); }} onUseRemote={async () => { await saveEncryptedVault(conflict); setEncryptedVault(conflict); setRemoteRevision(conflict.revision); setConflict(null); lockVault(); }} onExportBoth={() => exportBoth(encryptedVault, conflict)} />}
             {screen === "create" && <CreateVaultScreen onCreate={createVault} />}
@@ -308,30 +305,30 @@ export default function App() {
 }
 
 function Header(props: { screen: Screen; setScreen: (screen: Screen) => void; vault: VaultPayload | null; lockVault: () => void; online: boolean; syncEmail?: string; theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void }) {
-  return <header className="glass flex items-center justify-between rounded-3xl px-4 py-3">
-    <button className="flex items-center gap-3 text-left" onClick={() => props.vault && props.setScreen("dashboard")}>
-      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-teal-700 text-white"><Shield size={22} /></span>
-      <span>
+  return <header className="glass flex items-center justify-between gap-2 rounded-lg px-3 py-3">
+    <button className="flex min-w-0 items-center gap-3 text-left" onClick={() => props.vault && props.setScreen("dashboard")}>
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded bg-teal-700 text-white"><Shield size={21} /></span>
+      <span className="min-w-0">
         <span className="block text-base font-bold">TOTP-WebApp</span>
-        <span className="block text-xs text-slate-600 dark:text-slate-300">Encrypted local authenticator</span>
+        <span className="block truncate text-xs text-slate-600 dark:text-slate-300">Encrypted local authenticator</span>
       </span>
     </button>
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <StatusPill icon={props.online ? Cloud : WifiOff} text={props.online ? props.syncEmail ?? "Local" : "Offline"} />
-      <button className="btn-secondary !rounded-xl !p-3" aria-label="Toggle theme" onClick={() => props.setTheme(props.theme === "dark" ? "light" : "dark")}>{props.theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
-      {props.vault && <button className="btn-secondary !rounded-xl !p-3" aria-label="Settings" onClick={() => props.setScreen("settings")}><Settings size={18} /></button>}
-      {props.vault && <button className="btn-secondary !rounded-xl !p-3" aria-label="Lock" onClick={props.lockVault}><Lock size={18} /></button>}
+      <button className="btn-secondary !p-2.5" aria-label="Toggle theme" onClick={() => props.setTheme(props.theme === "dark" ? "light" : "dark")}>{props.theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+      {props.vault && <button className="btn-secondary !p-2.5" aria-label="Settings" onClick={() => props.setScreen("settings")}><Settings size={18} /></button>}
+      {props.vault && <button className="btn-secondary !p-2.5" aria-label="Lock" onClick={props.lockVault}><Lock size={18} /></button>}
     </div>
   </header>;
 }
 
 function StatusPill({ icon: Icon, text }: { icon: typeof Cloud; text: string }) {
-  return <span className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/60 px-3 py-2 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 sm:inline-flex"><Icon size={14} />{text}</span>;
+  return <span className="hidden max-w-40 items-center gap-2 rounded border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:inline-flex"><Icon size={14} className="shrink-0" /><span className="truncate">{text}</span></span>;
 }
 
 function NoticeBanner({ notice, onClose }: { notice: NonNullable<Notice>; onClose: () => void }) {
-  const tone = notice.type === "error" ? "border-red-300 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100" : "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-100";
-  return <div className={`mb-4 flex items-center justify-between rounded-2xl border px-4 py-3 text-sm ${tone}`}><span>{notice.message}</span><button aria-label="Dismiss" onClick={onClose}><X size={16} /></button></div>;
+  const tone = notice.type === "error" ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-100" : "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100";
+  return <div className={`mb-4 flex items-center justify-between gap-3 rounded border px-4 py-3 text-sm ${tone}`}><span className="min-w-0 break-words">{notice.message}</span><button className="shrink-0" aria-label="Dismiss" onClick={onClose}><X size={16} /></button></div>;
 }
 
 function CreateVaultScreen({ onCreate }: { onCreate: (password: string) => void }) {
@@ -352,9 +349,9 @@ function UnlockScreen({ encryptedVault, masterPassword, setMasterPassword, onUnl
 }
 
 function CenteredPanel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
-  return <section className="mx-auto grid min-h-[65vh] max-w-xl place-items-center">
-    <div className="glass w-full rounded-3xl p-6 sm:p-8">
-      <h1 className="text-3xl font-bold tracking-normal">{title}</h1>
+  return <section className="mx-auto grid min-h-[60vh] w-full max-w-xl place-items-center">
+    <div className="glass w-full rounded-lg p-5 sm:p-6">
+      <h1 className="text-2xl font-bold tracking-normal sm:text-3xl">{title}</h1>
       <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{subtitle}</p>
       <div className="mt-6 space-y-3">{children}</div>
     </div>
@@ -384,12 +381,12 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
     }
   }
   return <CenteredPanel title="Sync account" subtitle="This password is only for the sync account. It is separate from the vault master password.">
-    <div className={`rounded-2xl border px-4 py-3 text-sm ${serverStatus === "ready" ? "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-500/30 dark:bg-teal-500/10 dark:text-teal-100" : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"}`}>
+    <div className={`rounded border px-4 py-3 text-sm ${serverStatus === "ready" ? "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100" : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"}`}>
       {serverStatus === "checking" && `Checking sync server at ${getSyncBaseUrl() || "not configured"}...`}
       {serverStatus === "ready" && "Sync server is ready."}
       {serverStatus === "slow" && "Sync server is not responding yet. Render free services can take a moment to wake up; try again shortly."}
     </div>
-    <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-900/5 p-1 dark:bg-white/5">
+    <div className="grid grid-cols-2 gap-2 rounded bg-slate-100 p-1 dark:bg-slate-800">
       <button className={mode === "login" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("login")}>Login</button>
       <button className={mode === "register" ? "btn-primary" : "btn-secondary"} onClick={() => setMode("register")}>Register</button>
     </div>
@@ -401,8 +398,21 @@ function SyncLoginScreen({ onAuthed, setNotice }: { onAuthed: (token: string, em
 
 function Dashboard(props: { entries: VaultEntry[]; query: string; setQuery: (query: string) => void; tick: number; onCopy: (code: string) => void; onDelete: (id: string) => void; onReorder: (id: string, direction: -1 | 1) => void; onEdit: (id: string, patch: Partial<VaultEntry>) => void; setScreen: (screen: Screen) => void; onBackup: () => void; online: boolean; syncToken?: string; syncUpload: () => void; syncDownload: () => void }) {
   const extension = isExtensionRuntime();
+  const codeStepKey = props.entries.map((entry) => `${entry.id}:${Math.floor(props.tick / 1000 / entry.period)}`).join("|");
+  const codeById = useMemo(() => {
+    const codes = new Map<string, TotpDisplay>();
+    for (const entry of props.entries) {
+      try {
+        const code = generateTotpCode({ secret: entry.secret, algorithm: entry.algorithm, digits: entry.digits, period: entry.period, epoch: props.tick });
+        codes.set(entry.id, { code, formattedCode: formatTotpCode(code), error: false });
+      } catch {
+        codes.set(entry.id, { code: "", formattedCode: "", error: true });
+      }
+    }
+    return codes;
+  }, [props.entries, codeStepKey]);
   return <section>
-    <div className="mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
+    <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
       <label className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         <input className="input pl-11" value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Search issuer, account, or tag" />
@@ -412,40 +422,37 @@ function Dashboard(props: { entries: VaultEntry[]; query: string; setQuery: (que
           <button className="btn-secondary" onClick={props.onBackup}><Download size={18} />Backup</button>
           <button className="btn-secondary" onClick={() => props.setScreen("import")}><FileUp size={18} />Restore</button>
         </> : <>
-          <button className="btn-secondary" onClick={props.syncDownload} disabled={!props.online}>{props.syncToken ? <Cloud size={18} /> : <CloudOff size={18} />} Pull</button>
-          <button className="btn-secondary" onClick={props.syncUpload} disabled={!props.online}><Upload size={18} />Push</button>
+          <button className="btn-secondary" onClick={props.syncDownload} disabled={!props.online}>{props.syncToken ? <Cloud size={18} /> : <CloudOff size={18} />} Restore</button>
+          <button className="btn-secondary" onClick={props.syncUpload} disabled={!props.online}><Upload size={18} />Backup</button>
         </>}
         <button className="btn-primary" onClick={() => props.setScreen("add")}><Plus size={18} />Add</button>
       </div>
     </div>
-    {!props.online && <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">Offline mode. Local vault codes continue to work.</div>}
-    {props.entries.length === 0 ? <EmptyState onAdd={() => props.setScreen("add")} /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{props.entries.map((entry, index) => <EntryCard key={entry.id} entry={entry} tick={props.tick} onCopy={props.onCopy} onDelete={props.onDelete} onReorder={props.onReorder} onEdit={props.onEdit} first={index === 0} last={index === props.entries.length - 1} />)}</div>}
+    {!props.online && <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">Offline mode. Local vault codes continue to work.</div>}
+    {props.entries.length === 0 ? <EmptyState onAdd={() => props.setScreen("add")} /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{props.entries.map((entry, index) => <EntryCard key={entry.id} entry={entry} display={codeById.get(entry.id) ?? { code: "", formattedCode: "", error: true }} tick={props.tick} onCopy={props.onCopy} onDelete={props.onDelete} onReorder={props.onReorder} onEdit={props.onEdit} first={index === 0} last={index === props.entries.length - 1} />)}</div>}
   </section>;
 }
 
-function EntryCard({ entry, tick, onCopy, onDelete, onReorder, onEdit, first, last }: { entry: VaultEntry; tick: number; onCopy: (code: string) => void; onDelete: (id: string) => void; onReorder: (id: string, direction: -1 | 1) => void; onEdit: (id: string, patch: Partial<VaultEntry>) => void; first: boolean; last: boolean }) {
-  let code = "------";
-  let error = false;
-  try { code = generateTotpCode({ secret: entry.secret, algorithm: entry.algorithm, digits: entry.digits, period: entry.period, epoch: tick }); } catch { error = true; }
+function EntryCard({ entry, display, tick, onCopy, onDelete, onReorder, onEdit, first, last }: { entry: VaultEntry; display: TotpDisplay; tick: number; onCopy: (code: string) => void; onDelete: (id: string) => void; onReorder: (id: string, direction: -1 | 1) => void; onEdit: (id: string, patch: Partial<VaultEntry>) => void; first: boolean; last: boolean }) {
   const remaining = getRemainingSeconds(entry.period, tick);
   const progress = ((entry.period - remaining) / entry.period) * 100;
-  return <article className="glass rounded-3xl p-5">
+  return <article className="glass rounded-lg p-4">
     <div className="flex items-start justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-teal-600 to-amber-500 text-sm font-black text-white">{initials(entry.issuer)}</div>
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded bg-teal-700 text-sm font-black text-white">{initials(entry.issuer)}</div>
         <div className="min-w-0">
           <h2 className="truncate text-lg font-bold">{entry.issuer}</h2>
           <p className="truncate text-sm text-slate-600 dark:text-slate-300">{entry.accountName}</p>
         </div>
       </div>
-      <span className="rounded-full bg-slate-900/5 px-2.5 py-1 text-xs font-semibold dark:bg-white/10">{remaining}s</span>
+      <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:border-slate-700 dark:bg-slate-800">{remaining}s</span>
     </div>
-    {error ? <div className="mt-5 flex items-center gap-2 rounded-2xl border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100"><AlertTriangle size={16} />Invalid secret</div> : <>
-      <div className="mt-6 flex items-center justify-between gap-3">
-        <div className="font-mono text-4xl font-black tracking-widest sm:text-5xl">{code.replace(/(\d{3,4})(\d+)/, "$1 $2")}</div>
-        <button className="btn-primary !rounded-2xl !p-3" aria-label="Copy code" onClick={() => onCopy(code)}><Clipboard size={20} /></button>
+    {display.error ? <div className="mt-4 flex items-center gap-2 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-100"><AlertTriangle size={16} />Invalid secret</div> : <>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="min-w-0 font-mono text-3xl font-black tracking-normal sm:text-4xl">{display.formattedCode}</div>
+        <button className="btn-primary !p-3" aria-label="Copy code" onClick={() => onCopy(display.code)}><Clipboard size={20} /></button>
       </div>
-      <div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-900/10 dark:bg-white/10"><div className="h-full rounded-full bg-teal-600 transition-all" style={{ width: `${progress}%` }} /></div>
+      <div className="mt-4 h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-800"><div className="h-full rounded bg-teal-700" style={{ width: `${progress}%` }} /></div>
     </>}
     <div className="mt-4 flex flex-wrap gap-2">
       <button className="btn-secondary !px-3 !py-2" disabled={first} onClick={() => onReorder(entry.id, -1)}><ArrowDownUp size={15} />Up</button>
@@ -457,7 +464,7 @@ function EntryCard({ entry, tick, onCopy, onDelete, onReorder, onEdit, first, la
 }
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
-  return <div className="glass grid min-h-[45vh] place-items-center rounded-3xl p-8 text-center">
+  return <div className="glass grid min-h-[40vh] place-items-center rounded-lg p-6 text-center">
     <div><QrCode className="mx-auto text-teal-600" size={44} /><h2 className="mt-4 text-2xl font-bold">No accounts yet</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Add a QR code or manual secret to start generating offline codes.</p><button className="btn-primary mt-5" onClick={onAdd}><Plus size={18} />Add account</button></div>
   </div>;
 }
@@ -471,7 +478,7 @@ function AddAccountScreen({ setScreen }: { setScreen: (screen: Screen) => void }
 }
 
 function ActionCard({ icon: Icon, title, text, onClick }: { icon: typeof QrCode; title: string; text: string; onClick: () => void }) {
-  return <button onClick={onClick} className="glass rounded-3xl p-6 text-left transition hover:-translate-y-0.5">
+  return <button onClick={onClick} className="glass rounded-lg p-5 text-left">
     <Icon className="text-teal-600" size={30} /><h2 className="mt-4 text-xl font-bold">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{text}</p>
   </button>;
 }
@@ -523,7 +530,7 @@ function QrScannerScreen({ onAddMany, setNotice }: { onAddMany: (entries: Parsed
     await onAddMany(entries);
   }
   return <FormPanel title="QR scanner">
-    <div id={readerId} className="min-h-64 overflow-hidden rounded-3xl border border-slate-200 bg-black/5 dark:border-white/10 dark:bg-black/30" />
+    <div id={readerId} className="min-h-64 overflow-hidden rounded border border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-950" />
     <button className="btn-primary w-full" onClick={startCamera}><Camera size={18} />Start camera</button>
     <label className="btn-secondary w-full cursor-pointer"><FileUp size={18} />Upload QR image<input className="hidden" type="file" accept="image/*" multiple onChange={(event) => event.target.files?.length && scanFiles(event.target.files).catch((error: unknown) => setNotice({ type: "error", message: error instanceof Error ? error.message : "Invalid QR image." }))} /></label>
   </FormPanel>;
@@ -566,12 +573,12 @@ function ExportScreen({ encryptedVault, onBackup }: { encryptedVault: EncryptedV
 
 function SettingsScreen({ setScreen, syncEmail, onLogoutSync }: { setScreen: (screen: Screen) => void; syncEmail?: string; onLogoutSync: () => void }) {
   return <section className="grid gap-4 md:grid-cols-2">
-    {!isExtensionRuntime() && <ActionCard icon={Cloud} title={syncEmail ? `Sync: ${syncEmail}` : "Login to sync account"} text="Encrypted vault blobs can be pushed to or pulled from the backend." onClick={() => setScreen("login")} />}
+    {!isExtensionRuntime() && <ActionCard icon={Cloud} title={syncEmail ? `Sync: ${syncEmail}` : "Login to sync account"} text="Encrypted vault blobs can be backed up to or restored from the backend." onClick={() => setScreen("login")} />}
     <ActionCard icon={Shield} title="Security settings" text="Configure auto-lock and clipboard clearing." onClick={() => setScreen("security")} />
     <ActionCard icon={Download} title="Export backup" text="Download the encrypted vault blob." onClick={() => setScreen("export")} />
     <ActionCard icon={FileUp} title="Import backup" text="Restore encrypted backup or import otpauth text." onClick={() => setScreen("import")} />
     <ActionCard icon={AlertTriangle} title="About" text="Security model, limitations, and attribution." onClick={() => setScreen("about")} />
-    {syncEmail && <button className="btn-secondary rounded-3xl p-6 text-left" onClick={onLogoutSync}>Logout sync account</button>}
+    {syncEmail && <button className="btn-secondary rounded-lg p-5 text-left" onClick={onLogoutSync}>Logout sync account</button>}
   </section>;
 }
 
@@ -584,7 +591,7 @@ function SecurityScreen({ autoLockMinutes, setAutoLockMinutes, clipboardClearSec
 }
 
 function AboutScreen() {
-  return <div className="glass rounded-3xl p-6 leading-7">
+  return <div className="glass rounded-lg p-5 leading-7">
     <h1 className="text-2xl font-bold">About TOTP-WebApp</h1>
     <p className="mt-3 text-slate-600 dark:text-slate-300">TOTP-WebApp is a self-hosted, offline-first TOTP authenticator web app and Chrome extension with encrypted local vault storage, encrypted Backup/Restore, and optional encrypted cloud sync.</p>
     <p className="mt-3 text-slate-600 dark:text-slate-300">The backend stores sync account data and encrypted vault blobs only. It never receives the master password, decrypted vault content, TOTP secrets, or generated codes.</p>
@@ -594,11 +601,11 @@ function AboutScreen() {
 }
 
 function FormPanel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="mx-auto max-w-2xl"><div className="glass rounded-3xl p-6"><h1 className="mb-5 text-2xl font-bold">{title}</h1><div className="space-y-3">{children}</div></div></section>;
+  return <section className="mx-auto w-full max-w-2xl"><div className="glass rounded-lg p-5"><h1 className="mb-5 text-2xl font-bold">{title}</h1><div className="space-y-3">{children}</div></div></section>;
 }
 
 function ConflictPanel({ local, remote, onKeepLocal, onUseRemote, onExportBoth }: { local: EncryptedVaultRecord | null; remote: EncryptedVaultRecord; onKeepLocal: () => void; onUseRemote: () => void; onExportBoth: () => void }) {
-  return <div className="mb-4 rounded-3xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+  return <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
     <h2 className="font-bold">Sync conflict detected</h2>
     <p className="mt-1 text-sm">Local revision {local?.revision ?? 0} and remote revision {remote.revision} both changed. Choose how to proceed.</p>
     <div className="mt-3 flex flex-wrap gap-2"><button className="btn-secondary" onClick={onKeepLocal}>Keep local</button><button className="btn-secondary" onClick={onUseRemote}>Use remote</button><button className="btn-secondary" onClick={onExportBoth}>Export both</button></div>

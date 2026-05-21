@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGoogleAuthenticatorMigrationUri, parseProtonAuthenticatorExport } from "./importers";
+import { parseGoogleAuthenticatorMigrationUri, parseProtonAuthenticatorExport, parseTotpImportText } from "./importers";
 
 describe("importers", () => {
   it("parses Proton Authenticator export JSON", () => {
@@ -14,6 +14,18 @@ describe("importers", () => {
     }));
     expect(entries).toHaveLength(1);
     expect(entries[0].issuer).toBe("Example");
+  });
+
+  it("roundtrips standard otpauth export text through the plain importer", () => {
+    const uri = "otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&algorithm=SHA256&digits=8&period=45";
+    expect(parseTotpImportText(uri).entries).toEqual([{
+      issuer: "Example",
+      accountName: "alice@example.com",
+      secret: "JBSWY3DPEHPK3PXP",
+      algorithm: "SHA256",
+      digits: 8,
+      period: 45
+    }]);
   });
 
   it("parses Google Authenticator migration payloads", () => {

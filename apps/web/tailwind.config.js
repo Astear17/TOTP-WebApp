@@ -6,9 +6,6 @@ export default {
     extend: {
       fontFamily: {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"]
-      },
-      boxShadow: {
-        glow: "0 24px 80px rgba(16, 185, 129, 0.18)"
       }
     }
   },

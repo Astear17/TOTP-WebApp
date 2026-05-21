@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json && vite build",
     "build:extension": "npm run prebuild && tsc -p tsconfig.json && vite build --mode extension",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/extension-layout-smoke.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 0.0.0.0"
   },
