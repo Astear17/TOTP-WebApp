@@ -267,7 +267,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen text-slate-950 dark:text-slate-50">
+    <div className="tech-shell min-h-screen text-slate-950 dark:text-slate-50">
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 py-4 sm:px-5 lg:px-6">
         <Header screen={screen} setScreen={setScreen} vault={vault} lockVault={lockVault} online={online} syncEmail={syncEmail} theme={theme} setTheme={setTheme} />
         <main className="flex flex-1 items-stretch py-4">
@@ -449,7 +449,7 @@ function EntryCard({ entry, display, tick, onCopy, onDelete, onReorder, onEdit, 
     </div>
     {display.error ? <div className="mt-4 flex items-center gap-2 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-100"><AlertTriangle size={16} />Invalid secret</div> : <>
       <div className="mt-5 flex items-center justify-between gap-3">
-        <div className="min-w-0 font-mono text-3xl font-black tracking-normal sm:text-4xl">{display.formattedCode}</div>
+        <div className="min-w-0 font-mono text-3xl font-black tracking-normal sm:text-4xl" data-totp-code>{display.formattedCode}</div>
         <button className="btn-primary !p-3" aria-label="Copy code" onClick={() => onCopy(display.code)}><Clipboard size={20} /></button>
       </div>
       <div className="mt-4 h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-800"><div className="h-full rounded bg-teal-700" style={{ width: `${progress}%` }} /></div>
